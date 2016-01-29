@@ -8,7 +8,7 @@ from oscar_stripe.facade import Facade
 
 from . import PAYMENT_METHOD_STRIPE, PAYMENT_EVENT_PURCHASE, STRIPE_EMAIL, STRIPE_TOKEN
 
-import forms
+from . import forms
 
 SourceType = get_model('payment', 'SourceType')
 Source = get_model('payment', 'Source')
