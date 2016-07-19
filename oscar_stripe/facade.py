@@ -11,6 +11,26 @@ logger = logging.getLogger(__name__)
 Source = get_model('payment', 'Source')
 Order = get_model('order', 'Order')
 
+# https://support.stripe.com/questions/which-zero-decimal-currencies-does-stripe-support
+ZERO_DECIMAL_CURRENCIES = (
+    'BIF',  # Burundian Franc
+    'CLP',  # Chilean Peso
+    'DJF',  # Djiboutian Franc
+    'GNF',  # Guinean Franc
+    'JPY',  # Japanese Yen
+    'KMF',  # Comorian Franc
+    'KRW',  # South Korean Won
+    'MGA',  # Malagasy Ariary
+    'PYG',  # Paraguayan Guaraní
+    'RWF',  # Rwandan Franc
+    'VND',  # Vietnamese Đồng
+    'VUV',  # Vanuatu Vatu
+    'XAF',  # Central African Cfa Franc
+    'XOF',  # West African Cfa Franc
+    'XPF',  # Cfp Franc
+)
+
+
 class Facade(object):
     def __init__(self):
         stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -38,8 +58,12 @@ class Facade(object):
         try:
             charge_and_capture_together = getattr(settings,
                 "STRIPE_CHARGE_AND_CAPTURE_IN_ONE_STEP", False)
+            if total.currency.upper() in ZERO_DECIMAL_CURRENCIES:
+                amount = total.incl_tax
+            else:
+                amount = total.incl_tax * 100
             stripe_auth_id = stripe.Charge.create(
-                    amount=(total.incl_tax * 100).to_integral_value(),
+                    amount=amount.to_integral_value(),
                     currency=currency,
                     card=card,
                     description=description,
