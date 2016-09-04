@@ -3,33 +3,13 @@ from oscar.apps.payment.exceptions import UnableToTakePayment, InvalidGatewayReq
 from django.utils import timezone
 
 import stripe
-from django.db.models import get_model
+from django.apps import apps
 import logging
 
 
 logger = logging.getLogger(__name__)
-Source = get_model('payment', 'Source')
-Order = get_model('order', 'Order')
-
-# https://support.stripe.com/questions/which-zero-decimal-currencies-does-stripe-support
-ZERO_DECIMAL_CURRENCIES = (
-    'BIF',  # Burundian Franc
-    'CLP',  # Chilean Peso
-    'DJF',  # Djiboutian Franc
-    'GNF',  # Guinean Franc
-    'JPY',  # Japanese Yen
-    'KMF',  # Comorian Franc
-    'KRW',  # South Korean Won
-    'MGA',  # Malagasy Ariary
-    'PYG',  # Paraguayan Guaraní
-    'RWF',  # Rwandan Franc
-    'VND',  # Vietnamese Đồng
-    'VUV',  # Vanuatu Vatu
-    'XAF',  # Central African Cfa Franc
-    'XOF',  # West African Cfa Franc
-    'XPF',  # Cfp Franc
-)
-
+Source = apps.get_model('payment', 'Source')
+Order = apps.get_model('order', 'Order')
 
 class Facade(object):
     def __init__(self):
@@ -58,12 +38,8 @@ class Facade(object):
         try:
             charge_and_capture_together = getattr(settings,
                 "STRIPE_CHARGE_AND_CAPTURE_IN_ONE_STEP", False)
-            if total.currency.upper() in ZERO_DECIMAL_CURRENCIES:
-                amount = total.incl_tax
-            else:
-                amount = total.incl_tax * 100
             stripe_auth_id = stripe.Charge.create(
-                    amount=amount.to_integral_value(),
+                    amount=(total.incl_tax * 100).to_integral_value(),
                     currency=currency,
                     card=card,
                     description=description,
@@ -73,10 +49,10 @@ class Facade(object):
                 ).id
             logger.info("Payment authorized for order %s via stripe." % (order_number))
             return stripe_auth_id
-        except stripe.CardError as e:
+        except stripe.CardError, e:
             logger.exception('Card Error for order: \'{}\''.format(order_number) )
             raise UnableToTakePayment(self.get_friendly_decline_message(e))
-        except stripe.StripeError as e:
+        except stripe.StripeError, e:
             logger.exception('Stripe Error for order: \'{}\''.format(order_number) )
             raise InvalidGatewayRequestError(self.get_friendly_error_message(e))
 
@@ -99,9 +75,9 @@ class Facade(object):
             payment_source.date_captured = timezone.now()
             payment_source.save()
             logger.info("payment for order '%s' (id:%s) was captured via stripe (stripe_ref:%s)" % (order.number, order.id, charge_id))
-        except Source.DoesNotExist as e:
+        except Source.DoesNotExist, e:
             logger.exception('Source Error for order: \'{}\''.format(order_number) )
             raise Exception("Capture Failiure could not find payment source for Order %s" % order_number)
-        except Order.DoesNotExist as e:
+        except Order.DoesNotExist, e:
             logger.exception('Order Error for order: \'{}\''.format(order_number) )
             raise Exception("Capture Failiure Order %s does not exist" % order_number)
