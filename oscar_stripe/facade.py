@@ -56,7 +56,7 @@ class Facade(object):
             logger.error("Card info not found (no stripe token) for order '%s' while trying to charge stripe" % (order_number))
             raise UnableToTakePayment("Invalid card info")
         try:
-             charge_and_capture_together = getattr(settings,
+            charge_and_capture_together = getattr(settings,
                  "STRIPE_CHARGE_AND_CAPTURE_IN_ONE_STEP", False)
             if total.currency.upper() in ZERO_DECIMAL_CURRENCIES:
                 amount = total.incl_tax
