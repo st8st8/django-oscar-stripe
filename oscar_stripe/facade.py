@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from django.conf import settings
 from oscar.apps.payment.exceptions import UnableToTakePayment, InvalidGatewayRequestError
 from django.utils import timezone
