@@ -1,20 +1,21 @@
 #!/usr/bin/env python
 from setuptools import setup, find_packages
 
-setup(name='django-oscar-stripe',
+setup(name='django-oscar-stripe-sandbox',
       version='0.1',
       url='https://github.com/tangentlabs/django-oscar-stripe',
       author="David Winterbottom",
       author_email="david.winterbottom@tangentlabs.co.uk",
-      description="Stripe payment module for django-oscar",
-      long_description=open('README.rst').read(),
+      description="Sandbox app - Stripe payment module for django-oscar",
       keywords="Payment, Stripe",
       license='BSD',
-      packages=find_packages(exclude=['sandbox*', 'tests*']),
       include_package_data=True,
       install_requires=[
           'django-oscar>=0.6',
           'stripe==1.12.0',
+           # Haystack currently expects an older version (2017-11-18)
+           # sandbox settings currently setup for older versions
+           'Django<1.10',
       ],
       dependency_links=['https://code.stripe.com/stripe/stripe-1.12.0#egg=stripe'],
       # See http://pypi.python.org/pypi?%3Aaction=list_classifiers

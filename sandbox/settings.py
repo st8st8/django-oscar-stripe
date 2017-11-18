@@ -83,7 +83,7 @@ SECRET_KEY = '$)a7n&o80u!6y5t-+jrd3)3!%vh&shg$wqpjpxc!ar&p#!)n1a'
 TEMPLATE_LOADERS = (
     'django.template.loaders.filesystem.Loader',
     'django.template.loaders.app_directories.Loader',
-#     'django.template.loaders.eggs.Loader',
+    'django.template.loaders.eggs.Loader',
 )
 
 TEMPLATE_CONTEXT_PROCESSORS = (
@@ -144,7 +144,7 @@ LOGGING = {
     'handlers': {
         'null': {
             'level':'DEBUG',
-            'class':'django.utils.log.NullHandler',
+            'class':'logging.NullHandler',
         },
         'console':{
             'level':'DEBUG',
@@ -204,17 +204,18 @@ INSTALLED_APPS = [
     # External apps
     'django_extensions',
     'debug_toolbar',
-    'haystack',
-    'sorl.thumbnail',
+    #'haystack',
+    #'sorl.thumbnail',
     'oscar_stripe',
     'compressor',
-    'south',
+    #'south',
+    'widget_tweaks',
 ]
 from oscar import get_core_apps
 INSTALLED_APPS += get_core_apps()
 
 AUTHENTICATION_BACKENDS = (
-    'oscar.apps.customer.auth_backends.Emailbackend',
+    'oscar.apps.customer.auth_backends.EmailBackend',
     'django.contrib.auth.backends.ModelBackend',
 )
 
