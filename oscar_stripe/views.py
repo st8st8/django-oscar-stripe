@@ -1,9 +1,13 @@
 from django.apps import apps
 from django.conf import settings
+from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 
 from oscar.apps.checkout.views import PaymentDetailsView as CorePaymentDetailsView
+from oscar.apps.checkout.views import ThankYouView as CoreThankYouView
+
+from apps.checkout import mixins
 from oscar_stripe.facade import Facade
 
 from . import PAYMENT_METHOD_STRIPE, PAYMENT_EVENT_PURCHASE, STRIPE_EMAIL, STRIPE_TOKEN
@@ -14,13 +18,16 @@ SourceType = apps.get_model('payment', 'SourceType')
 Source = apps.get_model('payment', 'Source')
 
 
-class PaymentDetailsView(CorePaymentDetailsView):
+class PaymentDetailsView(CorePaymentDetailsView, mixins.CoracleShopOrderPlacementMixin):
+    template_name = "checkout/stripe_payment_details.html"
+    template_name_preview = 'checkout/stripe_preview.html'
 
     @method_decorator(csrf_exempt)
     def dispatch(self, request, *args, **kwargs):
         return super(PaymentDetailsView, self).dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
+        self.request.session["myc_myself_option"] = "myself"
         ctx = super(PaymentDetailsView, self).get_context_data(**kwargs)
         if self.preview:
             ctx['stripe_token_form'] = forms.StripeTokenForm(self.request.POST)
@@ -55,3 +62,7 @@ class PaymentDetailsView(CorePaymentDetailsView):
 
     def payment_metadata(self, order_number, total, **kwargs):
         return {'order_number': order_number}
+
+
+class ThankYouView(CoreThankYouView):
+    template_name = "checkout/stripe_preview.html"
