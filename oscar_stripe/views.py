@@ -2,6 +2,7 @@ from django.conf import settings
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from oscar.core.exceptions import ModuleNotFoundError
 from oscar.core.loading import get_class, get_model
 
 from oscar.apps.checkout.views import PaymentDetailsView as CorePaymentDetailsView
@@ -63,39 +64,15 @@ class PaymentDetailsView(CorePaymentDetailsView, mixins.CoracleShopOrderPlacemen
             reference=stripe_ref)
         self.add_payment_source(source)
 
-        self.add_payment_event(PAYMENT_EVENT_PURCHASE, total.incl_tax)
+        self.add_payment_event(PAYMENT_EVENT_PURCHASE, total.incl_tax, reference=stripe_ref)
 
     def payment_description(self, order_number, total, **kwargs):
         return "Stripe payment for order {0} by {1}".format(order_number, self.request.user.get_full_name())
-
-    def load_basket(self):
-        # Lookup the frozen basket that this txn corresponds to
-        try:
-            basket = self.get_submitted_basket()
-        except Basket.DoesNotExist:
-            return None
-
-        # Assign strategy to basket instance
-        if Selector:
-            basket.strategy = Selector().strategy(self.request)
-        print(basket.strategy)
-        # Re-apply any offers
-        Applicator().apply(basket, self.request.user, request=self.request)
-
-        return basket
         
     def payment_metadata(self, order_number, total, **kwargs):
         return {
             'order_number': order_number,
         }
-        
-        basket = self.load_basket()
-        items = [{
-            "item": line.product.title,
-            "quantity": line.quantity,
-            "price": line.line_price_incl_tax,
-        } for line in basket.all_lines()]
-
 
 class ThankYouView(CoreThankYouView):
     template_name = "checkout/stripe_preview.html"
