@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 from django.conf import settings
+from django.contrib.sites.models import Site
+from django.urls import reverse
 from oscar.apps.payment.exceptions import UnableToTakePayment, InvalidGatewayRequestError
 from django.utils import timezone
 
@@ -44,42 +46,34 @@ class Facade(object):
     def get_friendly_error_message(error):
         return 'An error occurred when communicating with the payment gateway.'
 
-    def charge(self,
-        order_number,
-        total,
-        card,
-        currency=settings.STRIPE_CURRENCY,
-        description=None,
-        metadata=None,
-        **kwargs):
-        logger.info("Authorizing payment on order '%s' via stripe" % (order_number))
-        if not card:
-            logger.error("Card info not found (no stripe token) for order '%s' while trying to charge stripe" % (order_number))
-            raise UnableToTakePayment("Invalid card info")
-        try:
-            charge_and_capture_together = getattr(settings,
-                 "STRIPE_CHARGE_AND_CAPTURE_IN_ONE_STEP", False)
-            if total.currency.upper() in ZERO_DECIMAL_CURRENCIES:
-                amount = total.incl_tax
-            else:
-                amount = total.incl_tax * 100
-            stripe_auth_id = stripe.Charge.create(
-                    amount=amount.to_integral_value(),
-                    currency=currency,
-                    card=card,
-                    description=description,
-                    metadata=(metadata or {'order_number': order_number}),
-                    capture = charge_and_capture_together,
-                    **kwargs
-                ).id
-            logger.info("Payment authorized for order %s via stripe." % (order_number))
-            return stripe_auth_id
-        except stripe.CardError as e:
-            logger.exception('Card Error for order: \'{}\''.format(order_number) )
-            raise UnableToTakePayment(self.get_friendly_decline_message(e))
-        except stripe.StripeError as e:
-            logger.exception('Stripe Error for order: \'{}\''.format(order_number) )
-            raise InvalidGatewayRequestError(self.get_friendly_error_message(e))
+    def begin(self, basket, total):
+        multiplier = 1
+        if total.currency.upper() in ZERO_DECIMAL_CURRENCIES:
+            multiplier = 1
+        else:
+            multiplier = 100
+
+        site = Site.objects.get_current()
+        line_items = [{
+                "name": "{0} payment".format(site.name),
+                "amount": int(multiplier * total.incl_tax),
+                "currency": total.currency,
+                "quantity": 1,
+        }]
+        session = stripe.checkout.Session.create(
+            customer_email=basket.owner.email,
+            payment_method_types=['card'],
+            line_items=line_items,
+            success_url="{0}{1}".format(settings.STRIPE_RETURN_URL_BASE, reverse("checkout:stripe-preview")),
+            cancel_url="{0}{1}".format(settings.STRIPE_RETURN_URL_BASE, reverse("catalogue:index")),
+            payment_intent_data={
+                'capture_method': 'manual',
+            },
+        )
+        return session
+
+    def retrieve_payment_intent(self, pi):
+        return stripe.PaymentIntent.retrieve(pi)
 
     def capture(self, order_number, **kwargs):
         """
@@ -92,10 +86,13 @@ class Facade(object):
             payment_source = Source.objects.get(order=order)
             # get charge_id from source
             charge_id = payment_source.reference
-            # find charge
-            charge = stripe.Charge.retrieve(charge_id)
-            # capture
-            charge.capture()
+
+            stripe.PaymentIntent.modify(
+                charge_id,
+                receipt_email=order.user.email
+            )
+
+            stripe.PaymentIntent.capture(charge_id)
             # set captured timestamp
             payment_source.date_captured = timezone.now()
             payment_source.save()
