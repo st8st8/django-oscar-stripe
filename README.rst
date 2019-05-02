@@ -2,16 +2,8 @@
 Stripe integration for django-oscar
 ===================================
 
-*This repo just supports Stripe Checkout at the moment. Although it should work with Stripe.js equally well,
-it has only been used with Checkout so far. It isn't complete yet. For instance, it currently doesn't support checkout
-with the stripe customer parameter.*
-
-This package provides integration between Stripe_ and Oscar_.  It is currently a
-work-in-progress - contributions are welcome.  Any questions, please use the Oscar mailing list: `django-oscar@googlegroups.com`_
-
-.. _Stripe: https://stripe.com
-.. _Oscar: http://oscarcommerce.com
-.. _`django-oscar@googlegroups.com`: https://groups.google.com/forum/?fromgroups#!forum/django-oscar
+This is a framework for using Stripe Checkout with a view for being SCA compliant for payments
+in Europe after September 2019.  Requires the lastest version of the Python Stripe API (2.27)
 
 Useful information:
 
@@ -22,26 +14,11 @@ Useful information:
 Contributing
 ============
 
-Clone the repo, create a virtualenv and run::
-
-    make install
-
-to install all dependencies.  Run the tests with::
-
-    ./runtests.py
-
-There is a sandbox site that you can browse and use to test the Stripe
-integration.  Create is using::
-
-    make sandbox
-
-and browse it after::
-
-    cd sandbox
-    ./manage.py runserver
+Please do.
 
 TODO
 ====
 
-* Create a "Stripe transaction" model that tracks each request/response to
-  Stripe's servers
+It's very crude at the moment, and hasn't been used in a standalone environment.
+A lot of the code has been taken from django-oscar-paypal as the logic is now similar.
+

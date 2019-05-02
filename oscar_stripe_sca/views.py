@@ -1,25 +1,24 @@
-import stripe
 from django.conf import settings
-from django.http import HttpResponse
+from django.contrib import messages
+from django.http import HttpResponseRedirect
+from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from django.views.generic import RedirectView
+from oscar.apps.checkout.views import PaymentDetailsView as CorePaymentDetailsView
 from oscar.core.exceptions import ModuleNotFoundError
 from oscar.core.loading import get_class, get_model
+from oscar_stripe.facade import logger
+from django.utils.translation import ugettext_lazy as _
 
-from oscar.apps.checkout.views import PaymentDetailsView as CorePaymentDetailsView
-from oscar.apps.checkout.views import ThankYouView as CoreThankYouView
-
-from apps.checkout import mixins
 from oscar_stripe_sca.facade import Facade
-
-from . import PAYMENT_METHOD_STRIPE, PAYMENT_EVENT_PURCHASE, STRIPE_EMAIL, STRIPE_TOKEN, STRIPE_SEND_RECEIPT
-
-from . import forms
+from . import PAYMENT_METHOD_STRIPE, PAYMENT_EVENT_PURCHASE
 
 SourceType = get_model('payment', 'SourceType')
 Source = get_model('payment', 'Source')
 Line = get_model('basket', 'Line')
+Basket = get_model('basket', 'Basket')
 Selector = get_class('partner.strategy', 'Selector')
 try:
     Applicator = get_class('offer.applicator', 'Applicator')
@@ -28,30 +27,38 @@ except ModuleNotFoundError:
     Applicator = get_class('offer.utils', 'Applicator')
 
 
-class PaymentDetailsView(CorePaymentDetailsView, mixins.CoracleShopOrderPlacementMixin):
+class StripeSCAPaymentDetailsView(CorePaymentDetailsView):
     template_name = "checkout/stripe_payment_details.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super(StripeSCAPaymentDetailsView, self).get_context_data(**kwargs)
+        stripe_session = Facade().begin(
+            ctx["basket"],
+            ctx["order_total"])
+        self.request.session["stripe_session_id"] = stripe_session.id
+        self.request.session["stripe_payment_intent_id"] = stripe_session.payment_intent
+        ctx['stripe_publishable_key'] = settings.STRIPE_PUBLISHABLE_KEY
+        ctx['stripe_session_id'] = stripe_session.id
+        return ctx
+
+
+class StripeSCASuccessResponseView(CorePaymentDetailsView):
+    preview = True
     template_name_preview = 'checkout/stripe_preview.html'
+
+    @property
+    def pre_conditions(self):
+        return []
 
     @method_decorator(csrf_exempt)
     def dispatch(self, request, *args, **kwargs):
-        return super(PaymentDetailsView, self).dispatch(request, *args, **kwargs)
+        return super(StripeSCASuccessResponseView, self).dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
-        self.request.session["myc_myself_option"] = "myself"
-        ctx = super(PaymentDetailsView, self).get_context_data(**kwargs)
-
-        if self.preview:
-            ctx['order_total_incl_tax_cents'] = (
-                ctx['order_total'].incl_tax * 100
-            ).to_integral_value()
-        else:
-            stripe_session = Facade().begin(
-                ctx["basket"],
-                ctx["order_total"])
-            self.request.session["stripe_session_id"] = stripe_session.id
-            self.request.session["stripe_payment_intent_id"] = stripe_session.payment_intent
-            ctx['stripe_publishable_key'] = settings.STRIPE_PUBLISHABLE_KEY
-            ctx['stripe_session_id'] = stripe_session.id
+        ctx = super(StripeSCASuccessResponseView, self).get_context_data(**kwargs)
+        ctx['order_total_incl_tax_cents'] = (
+            ctx['order_total'].incl_tax * 100
+        ).to_integral_value()
         return ctx
 
     def handle_payment(self, order_number, order_total, **kwargs):
@@ -75,43 +82,67 @@ class PaymentDetailsView(CorePaymentDetailsView, mixins.CoracleShopOrderPlacemen
 
     def payment_description(self, order_number, total, **kwargs):
         return "Stripe payment for order {0} by {1}".format(order_number, self.request.user.get_full_name())
-        
-    def payment_metadata(self, order_number, total, **kwargs):
+
+    @staticmethod
+    def payment_metadata(order_number, total, **kwargs):
         return {
             'order_number': order_number,
         }
 
+    def load_frozen_basket(self, basket_id):
+        # Lookup the frozen basket that this txn corresponds to
+        try:
+            basket = Basket.objects.get(id=basket_id, status=Basket.FROZEN)
+        except Basket.DoesNotExist:
+            return None
 
-class ThankYouView(CoreThankYouView):
-    template_name = "checkout/stripe_preview.html"
+        # Assign strategy to basket instance
+        if Selector:
+            basket.strategy = Selector().strategy(self.request)
+
+        # Re-apply any offers
+        Applicator().apply(basket, self.request.user, request=self.request)
+
+        return basket
+
+    def get(self, request, *args, **kwargs):
+        kwargs['basket'] = self.load_frozen_basket(kwargs['basket_id'])
+        if not kwargs['basket']:
+            logger.warning(
+                "Unable to load frozen basket with ID %s", kwargs['basket_id'])
+            messages.error(
+                self.request,
+                _("No basket was found that corresponds to your "
+                  "Stripe transaction"))
+            return HttpResponseRedirect(reverse('basket:summary'))
+        return super(StripeSCASuccessResponseView, self).get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        """
+        Place an order.
+        """
+        # Reload frozen basket which is specified in the URL
+        basket = self.load_frozen_basket(kwargs['basket_id'])
+        if not basket:
+            messages.error(self.request, _("No basket was found that corresponds to your "
+                  "Stripe transaction"))
+            return HttpResponseRedirect(reverse('basket:summary'))
+
+        submission = self.build_submission(basket=basket)
+        return self.submit(**submission)
 
 
-# @method_decorator(csrf_exempt, name='dispatch')
-# class StripeWebhookView(PaymentDetailsView):
-#     def post(self, request, **kwargs):
-#         endpoint_secret = settings.STRIPE_ENDPOINT_SECRET
-#         stripe.api_key = settings.STRIPE_SECRET_KEY
-#         payload = request.body
-#         sig_header = request.META['HTTP_STRIPE_SIGNATURE']
-#         event = None
-#
-#         try:
-#             event = stripe.Webhook.construct_event(
-#                         payload, sig_header, endpoint_secret)
-#         except ValueError as e:
-#             # Invalid payload
-#             return HttpResponse(status=400)
-#         except stripe.error.SignatureVerificationError as e:
-#             # Invalid signature
-#             return HttpResponse(status=400)
-#
-#         # Handle the checkout.session.completed event
-#         if event['type'] == 'checkout.session.completed':
-#             session = event['data']['object']
-#
-#             # Fulfill the purchase...
-#             self.handle_payment(
-#                 session
-#             )
-#
-#         return HttpResponse(status=204)
+class StripeSCACancelResponseView(RedirectView):
+    permanent = False
+
+    def get(self, request, *args, **kwargs):
+        basket = get_object_or_404(Basket, id=kwargs['basket_id'],
+                                   status=Basket.FROZEN)
+        basket.thaw()
+        logger.info("Payment cancelled (token %s) - basket #%s thawed",
+                    request.GET.get('token', '<no token>'), basket.id)
+        return super(StripeSCACancelResponseView, self).get(request, *args, **kwargs)
+
+    def get_redirect_url(self, **kwargs):
+        messages.error(self.request, _("Stripe transaction cancelled"))
+        return reverse('basket:summary')

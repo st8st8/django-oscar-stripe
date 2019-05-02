@@ -2,13 +2,10 @@
 from django.conf import settings
 from django.contrib.sites.models import Site
 from django.urls import reverse
-from oscar.apps.payment.exceptions import UnableToTakePayment, InvalidGatewayRequestError
 from django.utils import timezone
-
 import stripe
 from django.apps import apps
 import logging
-
 
 logger = logging.getLogger(__name__)
 Source = apps.get_model('payment', 'Source')
@@ -54,18 +51,20 @@ class Facade(object):
             multiplier = 100
 
         site = Site.objects.get_current()
+        line_items_summary = ", ".join(["{0}x{1}".format(l.quantity, l.product.title) for l in basket.lines.all()])
         line_items = [{
-                "name": "{0} payment".format(site.name),
+                "name": line_items_summary,
                 "amount": int(multiplier * total.incl_tax),
                 "currency": total.currency,
                 "quantity": 1,
         }]
+        basket.freeze()
         session = stripe.checkout.Session.create(
             customer_email=basket.owner.email,
             payment_method_types=['card'],
             line_items=line_items,
-            success_url="{0}{1}".format(settings.STRIPE_RETURN_URL_BASE, reverse("checkout:stripe-preview")),
-            cancel_url="{0}{1}".format(settings.STRIPE_RETURN_URL_BASE, reverse("catalogue:index")),
+            success_url=settings.STRIPE_PAYMENT_SUCCESS_URL.format(basket.id),
+            cancel_url=settings.STRIPE_PAYMENT_CANCEL_URL.format(basket.id),
             payment_intent_data={
                 'capture_method': 'manual',
             },
@@ -99,7 +98,7 @@ class Facade(object):
             logger.info("payment for order '%s' (id:%s) was captured via stripe (stripe_ref:%s)" % (order.number, order.id, charge_id))
         except Source.DoesNotExist as e:
             logger.exception('Source Error for order: \'{}\''.format(order_number) )
-            raise Exception("Capture Failiure could not find payment source for Order %s" % order_number)
+            raise Exception("Capture Failure could not find payment source for Order %s" % order_number)
         except Order.DoesNotExist as e:
             logger.exception('Order Error for order: \'{}\''.format(order_number) )
-            raise Exception("Capture Failiure Order %s does not exist" % order_number)
+            raise Exception("Capture Failure Order %s does not exist" % order_number)
